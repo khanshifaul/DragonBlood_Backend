@@ -6,18 +6,20 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  // Use CORS_ORIGIN from env or ConfigService for deployment
+  const corsOrigin =
+    configService.get('CORS_ORIGIN') ||
+    process.env.CORS_ORIGIN ||
+    'http://localhost:5173';
+
   app.enableCors({
-    origin: [
-      configService.get('CLIENT_URL') || 'http://localhost:5173',
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://192.168.1.211:5173',
-    ],
-    methods: ['GET', 'POST'],
+    origin: corsOrigin,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
 
-  const port = configService.get('PORT') || 5000;
+  // Use Render's PORT if available
+  const port = configService.get('PORT') || process.env.PORT || 5000;
   await app.listen(port);
   console.log(`API server running at http://localhost:${port}`);
 }
