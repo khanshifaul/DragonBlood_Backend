@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+read full codebase (all files)
+make the changes directly to  codebase
+remember to write command for powershell & run 
+if multiple project then change directory
+
+don't ask for permission to create files or run command
