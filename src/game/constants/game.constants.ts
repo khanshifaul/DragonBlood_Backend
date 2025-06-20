@@ -5,4 +5,4 @@ export const GAME_CONSTANTS = {
   MAX_BET: 100, // 100x maximum
   ROUND_DELAY: 10000, // 10 seconds for betting
   REVEAL_DELAY: 5000, // 5 seconds to show results
-}; 
+};

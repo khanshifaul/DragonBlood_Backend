@@ -11,4 +11,4 @@ export class PlaceBetPayload {
 
   @ApiProperty({ example: 10, description: 'Bet amount' })
   betAmount: number;
-} 
+}

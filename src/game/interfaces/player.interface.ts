@@ -9,4 +9,4 @@ export interface Player {
   };
   rewardsEarned: number;
   rewardsLost: number;
-} 
+}

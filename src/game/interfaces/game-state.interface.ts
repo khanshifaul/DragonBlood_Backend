@@ -10,4 +10,4 @@ export interface GameState {
   pot: number;
   gameStarted: boolean;
   roundInProgress: boolean;
-} 
+}

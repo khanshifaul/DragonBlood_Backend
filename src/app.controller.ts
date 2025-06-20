@@ -8,13 +8,19 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Root endpoint', description: 'Returns a hello message.' })
+  @ApiOperation({
+    summary: 'Root endpoint',
+    description: 'Returns a hello message.',
+  })
   getHello(): string {
     return this.appService.getHello();
   }
 
   @Get('health')
-  @ApiOperation({ summary: 'Health check', description: 'Returns the health status of the server.' })
+  @ApiOperation({
+    summary: 'Health check',
+    description: 'Returns the health status of the server.',
+  })
   health() {
     return { status: 'ok' };
   }

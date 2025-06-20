@@ -72,9 +72,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   @SubscribeMessage('joinGame')
   handleJoinGame(client: Socket, playerName: string) {
-    if (this.gameService.getState().players.some(p => p.name === playerName)) {
-      client.emit('betFailed', { message: 'Name already taken. Choose another.' });
-      console.error(`[SOCKET ERROR] Join failed for name: ${playerName} (duplicate)`);
+    if (
+      this.gameService.getState().players.some((p) => p.name === playerName)
+    ) {
+      client.emit('betFailed', {
+        message: 'Name already taken. Choose another.',
+      });
+      console.error(
+        `[SOCKET ERROR] Join failed for name: ${playerName} (duplicate)`,
+      );
       return;
     }
     const newPlayer: Player = {
@@ -104,11 +110,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   @SubscribeMessage('placeBet')
   handlePlaceBet(client: Socket, data: { amount: number; cardIndex: number }) {
-    const success = this.gameService.placeBet(client.id, data.amount, data.cardIndex);
+    const success = this.gameService.placeBet(
+      client.id,
+      data.amount,
+      data.cardIndex,
+    );
     if (success) {
-      client.emit('betPlaced', { amount: data.amount, cardIndex: data.cardIndex });
+      client.emit('betPlaced', {
+        amount: data.amount,
+        cardIndex: data.cardIndex,
+      });
       this.server.emit('gameState', this.gameService.getState());
-      console.log(`[SOCKET] Bet placed: ${data.amount} on card ${data.cardIndex} by ${client.id}`);
+      console.log(
+        `[SOCKET] Bet placed: ${data.amount} on card ${data.cardIndex} by ${client.id}`,
+      );
     } else {
       client.emit('betFailed', { message: 'Bet could not be placed' });
       console.error(`[SOCKET ERROR] Bet failed for ${client.id}`);
@@ -127,24 +142,30 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.gameService.startNewRound();
       this.server.emit('roundStarted', this.gameService.getState());
       setTimeout(() => {
-        const { winners, redCardPosition, noBetPlayers } = this.gameService.completeRound();
+        const { winners, redCardPosition, noBetPlayers } =
+          this.gameService.completeRound();
         this.server.emit('roundCompleted', {
           gameState: this.gameService.getState(),
-          winners: winners.map(p => p.id),
+          winners: winners.map((p) => p.id),
           redCardPosition,
-          noBetPlayers: noBetPlayers.map(p => p.id),
+          noBetPlayers: noBetPlayers.map((p) => p.id),
         });
         // Emit redCardRevealed event for frontend animation
         setTimeout(() => {
-          this.server.emit('redCardRevealed', { redCardPosition, gameState: this.gameService.getState() });
+          this.server.emit('redCardRevealed', {
+            redCardPosition,
+            gameState: this.gameService.getState(),
+          });
           // Start next round after reveal delay
           setTimeout(() => {
             this.handleStartRound();
           }, GAME_CONSTANTS.REVEAL_DELAY);
         }, 1000); // 1s after roundCompleted, reveal the card
-        console.log(`[SOCKET] Round completed. Red card: ${redCardPosition}, Winners: ${winners.map(p => p.name).join(', ')}, No bet: ${noBetPlayers.map(p => p.name).join(', ')}`);
+        console.log(
+          `[SOCKET] Round completed. Red card: ${redCardPosition}, Winners: ${winners.map((p) => p.name).join(', ')}, No bet: ${noBetPlayers.map((p) => p.name).join(', ')}`,
+        );
       }, GAME_CONSTANTS.ROUND_DELAY);
       console.log('[SOCKET] Round started');
     }
   }
-} 
+}
