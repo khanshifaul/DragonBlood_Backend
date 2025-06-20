@@ -10,14 +10,33 @@ import { GameService } from './game.service';
 import { Player } from './interfaces/player.interface';
 import { GAME_CONSTANTS } from './constants/game.constants';
 
+/**
+ * GameGateway handles all Socket.IO events for the game.
+ *
+ * ## Events
+ * - joinGame: Join the game (payload: string playerName)
+ * - placeBet: Place a bet (payload: { amount: number, cardIndex: number })
+ * - startRound: Start a new round (no payload)
+ *
+ * ## Emits
+ * - playerJoined: Player object
+ * - betPlaced: { amount, cardIndex }
+ * - betFailed: { message }
+ * - gameState: Game state object
+ * - roundStarted: Game state object
+ * - roundCompleted: { gameState, winners, redCardPosition, noBetPlayers }
+ * - redCardRevealed: { redCardPosition, gameState }
+ */
 @WebSocketGateway({
   cors: {
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:5000',
-      'http://localhost:3000',
-      'http://192.168.1.211:5173',
-    ],
+    origin: process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',')
+      : [
+          'http://localhost:5173',
+          'http://localhost:5000',
+          'http://localhost:3000',
+          'http://192.168.1.211:5173',
+        ],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -27,16 +46,30 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(private readonly gameService: GameService) {}
 
+  /**
+   * Handle new client connection
+   * @param client Socket
+   */
   handleConnection(client: Socket) {
     console.log(`[SOCKET] Client connected: ${client.id}`);
   }
 
+  /**
+   * Handle client disconnect
+   * @param client Socket
+   */
   handleDisconnect(client: Socket) {
     this.gameService.removePlayer(client.id);
     this.server.emit('gameState', this.gameService.getState());
     console.log(`[SOCKET] Client disconnected: ${client.id}`);
   }
 
+  /**
+   * joinGame event
+   * @param client Socket
+   * @param playerName string - Player name
+   * Emits: playerJoined, gameState, betFailed
+   */
   @SubscribeMessage('joinGame')
   handleJoinGame(client: Socket, playerName: string) {
     if (this.gameService.getState().players.some(p => p.name === playerName)) {
@@ -63,6 +96,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /**
+   * placeBet event
+   * @param client Socket
+   * @param data { amount: number, cardIndex: number }
+   * Emits: betPlaced, gameState, betFailed
+   */
   @SubscribeMessage('placeBet')
   handlePlaceBet(client: Socket, data: { amount: number; cardIndex: number }) {
     const success = this.gameService.placeBet(client.id, data.amount, data.cardIndex);
@@ -76,6 +115,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /**
+   * startRound event
+   * No payload
+   * Emits: roundStarted, roundCompleted, redCardRevealed
+   */
   @SubscribeMessage('startRound')
   handleStartRound() {
     const gameState = this.gameService.getState();
