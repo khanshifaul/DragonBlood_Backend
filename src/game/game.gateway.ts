@@ -1,14 +1,14 @@
 import {
-  WebSocketGateway,
-  WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { GAME_CONSTANTS } from './constants/game.constants';
 import { GameService } from './game.service';
 import { Player } from './interfaces/player.interface';
-import { GAME_CONSTANTS } from './constants/game.constants';
 
 /**
  * GameGateway handles all Socket.IO events for the game.
@@ -72,6 +72,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   @SubscribeMessage('joinGame')
   handleJoinGame(client: Socket, playerName: string) {
+    console.log(`[RECV] joinGame from ${client.id}:`, playerName);
     if (
       this.gameService.getState().players.some((p) => p.name === playerName)
     ) {
@@ -88,6 +89,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       name: playerName,
       socketId: client.id,
       chips: GAME_CONSTANTS.INITIAL_CHIPS,
+      bets: [],
       rewardsEarned: 0,
       rewardsLost: 0,
     };
@@ -110,19 +112,43 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   @SubscribeMessage('placeBet')
   handlePlaceBet(client: Socket, data: { amount: number; cardIndex: number }) {
+    console.log(`[RECV] placeBet from ${client.id}:`, data);
+    // Find the player before placing the bet
+    const playerBefore = this.gameService.getState().players.find(
+      (p) => p.socketId === client.id,
+    );
+    const chipsBefore = playerBefore?.chips ?? null;
     const success = this.gameService.placeBet(
       client.id,
       data.amount,
       data.cardIndex,
     );
+    // Find the player after placing the bet
+    const playerAfter = this.gameService.getState().players.find(
+      (p) => p.socketId === client.id,
+    );
+    const chipsAfter = playerAfter?.chips ?? null;
     if (success) {
+      // Emit to the betting client
       client.emit('betPlaced', {
         amount: data.amount,
         cardIndex: data.cardIndex,
+        chipsBefore,
+        chipsAfter,
+      });
+      // Emit to all clients (global betPlaced event)
+      this.server.emit('betPlaced', {
+        playerName: playerAfter?.name,
+        playerId: playerAfter?.id,
+        amount: data.amount,
+        cardIndex: data.cardIndex,
+        chipsAfter, // always use chipsAfter for consistency
+        chipsBefore,
+        pot: this.gameService.getState().pot,
       });
       this.server.emit('gameState', this.gameService.getState());
       console.log(
-        `[SOCKET] Bet placed: ${data.amount} on card ${data.cardIndex} by ${client.id}`,
+        `[SOCKET] Bet placed: ${data.amount} on card ${data.cardIndex} by ${client.id} | Chips before: ${chipsBefore} | Chips after: ${chipsAfter}`,
       );
     } else {
       client.emit('betFailed', { message: 'Bet could not be placed' });
@@ -136,19 +162,21 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * Emits: roundStarted, roundCompleted, redCardRevealed
    */
   @SubscribeMessage('startRound')
-  handleStartRound() {
+  handleStartRound(client?: Socket, data?: any) {
+    console.log(`[RECV] startRound from ${client?.id ?? 'server/auto'}:`, data);
     const gameState = this.gameService.getState();
     if (!gameState.roundInProgress) {
       this.gameService.startNewRound();
       this.server.emit('roundStarted', this.gameService.getState());
       setTimeout(() => {
-        const { winners, redCardPosition, noBetPlayers } =
+        const { winners, redCardPosition, noBetPlayers, betResults } =
           this.gameService.completeRound();
         this.server.emit('roundCompleted', {
           gameState: this.gameService.getState(),
           winners: winners.map((p) => p.id),
           redCardPosition,
           noBetPlayers: noBetPlayers.map((p) => p.id),
+          betResults, // send detailed bet results
         });
         // Emit redCardRevealed event for frontend animation
         setTimeout(() => {
@@ -162,7 +190,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }, GAME_CONSTANTS.REVEAL_DELAY);
         }, 1000); // 1s after roundCompleted, reveal the card
         console.log(
-          `[SOCKET] Round completed. Red card: ${redCardPosition}, Winners: ${winners.map((p) => p.name).join(', ')}, No bet: ${noBetPlayers.map((p) => p.name).join(', ')}`,
+          `[SOCKET] Round completed. Red card: ${redCardPosition}, Winners: ${winners
+            .map((p) => p.name)
+            .join(', ')}, No bet: ${noBetPlayers
+            .map((p) => p.name)
+            .join(', ')}`,
         );
       }, GAME_CONSTANTS.ROUND_DELAY);
       console.log('[SOCKET] Round started');

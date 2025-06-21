@@ -3,10 +3,10 @@ export interface Player {
   name: string;
   socketId: string;
   chips: number;
-  currentBet?: {
+  bets: {
     amount: number;
     cardIndex: number;
-  };
+  }[];
   rewardsEarned: number;
   rewardsLost: number;
 }

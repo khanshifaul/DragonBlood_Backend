@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { GAME_CONSTANTS } from './constants/game.constants';
 import { GameState } from './interfaces/game-state.interface';
 import { Player } from './interfaces/player.interface';
-import { GAME_CONSTANTS } from './constants/game.constants';
 
 @Injectable()
 export class GameService {
@@ -9,7 +9,7 @@ export class GameService {
     players: [],
     currentRound: 0,
     cards: {
-      revealed: Array(GAME_CONSTANTS.NUM_CARDS).fill(false),
+      revealed: Array(GAME_CONSTANTS.NUM_CARDS).fill(false) as boolean[],
     },
     pot: 0,
     gameStarted: false,
@@ -22,12 +22,15 @@ export class GameService {
 
   addPlayer(player: Player): void {
     this.gameState.players.push(player);
+    console.log(`[DEBUG] Player added: ${player.name} (${player.id}) | Total players: ${this.gameState.players.length}`);
   }
 
   removePlayer(socketId: string): void {
+    const player = this.gameState.players.find((p) => p.socketId === socketId);
     this.gameState.players = this.gameState.players.filter(
       (p) => p.socketId !== socketId,
     );
+    console.log(`[DEBUG] Player removed: ${player?.name ?? 'unknown'} (${socketId}) | Total players: ${this.gameState.players.length}`);
   }
 
   placeBet(socketId: string, amount: number, cardIndex: number): boolean {
@@ -48,9 +51,9 @@ export class GameService {
       );
       return false;
     }
-    if (amount < GAME_CONSTANTS.MIN_BET || amount > GAME_CONSTANTS.MAX_BET) {
+    if (amount < GAME_CONSTANTS.MIN_BET) {
       console.warn(
-        `[BET FAIL] Bet amount ${amount} out of range (${GAME_CONSTANTS.MIN_BET}-${GAME_CONSTANTS.MAX_BET}) for player ${player.name} (${socketId})`,
+        `[BET FAIL] Bet amount ${amount} below min (${GAME_CONSTANTS.MIN_BET}) for player ${player.name} (${socketId})`,
       );
       return false;
     }
@@ -60,17 +63,14 @@ export class GameService {
       );
       return false;
     }
-    if (player.currentBet) {
-      console.warn(
-        `[BET FAIL] Player ${player.name} (${socketId}) already placed a bet this round.`,
-      );
-      return false;
+    if (!Array.isArray(player.bets)) {
+      player.bets = [];
     }
-    player.currentBet = { amount, cardIndex };
+    player.bets.push({ amount, cardIndex });
     player.chips -= amount;
     this.gameState.pot += amount;
     console.log(
-      `[BET SUCCESS] Player ${player.name} (${socketId}) bet ${amount} on card ${cardIndex}`,
+      `[BET SUCCESS] Player ${player.name} (${socketId}) bet ${amount} on card ${cardIndex} | Chips left: ${player.chips} | Pot: ${this.gameState.pot}`,
     );
     return true;
   }
@@ -80,60 +80,107 @@ export class GameService {
     this.gameState.roundInProgress = true;
     this.gameState.pot = 0;
     this.gameState.cards = {
-      revealed: Array(GAME_CONSTANTS.NUM_CARDS).fill(false),
+      revealed: Array(GAME_CONSTANTS.NUM_CARDS).fill(false) as boolean[],
     };
     this.gameState.players.forEach((player) => {
-      player.currentBet = undefined;
+      player.bets = [];
     });
     console.log(
-      `[ROUND STARTED] Round ${this.gameState.currentRound} started. All bets reset.`,
+      `[ROUND STARTED] Round ${this.gameState.currentRound} started. All bets reset. Players: ${this.gameState.players.map(p => p.name).join(', ')}`,
     );
   }
 
   determineRedCardPosition(): number {
-    const bets = this.gameState.players
-      .filter((p) => p.currentBet)
-      .map((p) => p.currentBet!.cardIndex);
-    const betCounts = Array(GAME_CONSTANTS.NUM_CARDS).fill(0);
-    bets.forEach((bet) => betCounts[bet - 1]++);
-    const minBets = Math.min(...betCounts);
-    const possiblePositions = betCounts
-      .map((count, index) => (count === minBets ? index + 1 : null))
-      .filter((pos) => pos !== null);
-    return possiblePositions[
-      Math.floor(Math.random() * possiblePositions.length)
-    ];
+    // Gather all bets for this round
+    const allBets = this.gameState.players
+      .filter((p) => Array.isArray(p.bets) && p.bets.length > 0)
+      .flatMap((p: Player) => p.bets.map((bet) => ({ amount: bet.amount, cardIndex: bet.cardIndex })));
+    const totalPot = this.gameState.pot;
+    const numCards = GAME_CONSTANTS.NUM_CARDS;
+    // For each possible red card position, calculate total payout and profit
+    let maxProfit = -Infinity;
+    let bestPositions: number[] = [];
+    for (let pos = 1; pos <= numCards; pos++) {
+      // Payout is 2x for each bet on this card
+      const payout = allBets
+        .filter((bet) => bet.cardIndex === pos)
+        .reduce((sum, bet) => sum + bet.amount * 2, 0);
+      const profit = totalPot - payout;
+      if (profit > maxProfit) {
+        maxProfit = profit;
+        bestPositions = [pos];
+      } else if (profit === maxProfit) {
+        bestPositions.push(pos);
+      }
+    }
+    const chosen = bestPositions[Math.floor(Math.random() * bestPositions.length)];
+    console.log(`[DEBUG] Red card determined: ${chosen} | Max profit: ${maxProfit} | Candidates: ${bestPositions.join(', ')} | All bets: ${JSON.stringify(allBets)}`);
+    // Randomly select among the most profitable positions
+    return chosen;
   }
 
   completeRound(): {
     winners: Player[];
     redCardPosition: number;
     noBetPlayers: Player[];
+    betResults: {
+      playerId: string;
+      bets: {
+        cardIndex: number;
+        amount: number;
+        won: boolean;
+        payout: number;
+      }[];
+    }[];
   } {
     const redCardPosition = this.determineRedCardPosition();
     this.gameState.cards.redCardPosition = redCardPosition;
+    const betResults = this.gameState.players.map((player) => {
+      let totalPayout = 0;
+      const bets = (player.bets || []).map((bet) => {
+        const won = bet.cardIndex === redCardPosition;
+        const payout = won ? bet.amount * 2 : 0;
+        if (won) totalPayout += payout;
+        return { ...bet, won, payout };
+      });
+      // Update chips for all bets (win or lose)
+      if (totalPayout > 0) {
+        player.chips += totalPayout;
+        player.rewardsEarned += totalPayout;
+        this.gameState.pot -= totalPayout;
+      }
+      bets.forEach((bet) => {
+        if (!bet.won) {
+          player.rewardsLost += bet.amount;
+        }
+      });
+      console.log(`[ROUND RESULT] Player ${player.name} | Bets: ${JSON.stringify(bets)} | Chips: ${player.chips}`);
+      return { playerId: player.id, bets };
+    });
     const winners = this.gameState.players.filter(
       (player) =>
-        player.currentBet && player.currentBet.cardIndex === redCardPosition,
+        Array.isArray(player.bets) &&
+        player.bets.some((bet) => bet.cardIndex === redCardPosition),
     );
-    winners.forEach((winner) => {
-      const payout = winner.currentBet!.amount * 2;
-      winner.chips += payout;
-      winner.rewardsEarned += payout;
-      this.gameState.pot -= winner.currentBet!.amount;
-    });
-    this.gameState.players.forEach((player) => {
-      if (
-        player.currentBet &&
-        player.currentBet.cardIndex !== redCardPosition
-      ) {
-        player.rewardsLost += player.currentBet.amount;
-      }
-    });
     const noBetPlayers = this.gameState.players.filter(
-      (player) => !player.currentBet,
+      (player) => !Array.isArray(player.bets) || player.bets.length === 0,
     );
     this.gameState.roundInProgress = false;
-    return { winners, redCardPosition, noBetPlayers };
+    console.log(`[ROUND END] Red card: ${redCardPosition} | Winners: ${winners.map(p => p.name).join(', ') || 'None'} | Pot: ${this.gameState.pot}`);
+    return { winners, redCardPosition, noBetPlayers, betResults };
+  }
+
+  resetGameState(): void {
+    this.gameState = {
+      players: [],
+      currentRound: 0,
+      cards: {
+        revealed: Array(GAME_CONSTANTS.NUM_CARDS).fill(false) as boolean[],
+      },
+      pot: 0,
+      gameStarted: false,
+      roundInProgress: false,
+    };
+    console.log('[DEBUG] Game state reset.');
   }
 }
